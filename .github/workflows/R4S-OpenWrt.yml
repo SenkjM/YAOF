@@ -125,17 +125,13 @@ jobs:
         zip R4S-GC404-$(date +%Y-%m-%d)-${{ env.latest_release }}-ext4.zip *r4s*ext4*
         zip R4S-GC404-$(date +%Y-%m-%d)-${{ env.latest_release }}-sfs.zip *r4s*squashfs*
         ls -Ahl
-    - name: Create release
-      id: create_release
-      uses: ncipollo/release-action@main
+    - name: Upload Build Artifacts
+      uses: actions/upload-artifact@v4
       with:
-        name: OpenWRT-${{ env.latest_release }}
-        allowUpdates: true
-        prerelease: false
-        tag: ${{ env.latest_release }}
-        commit: "24.10"
-        replacesArtifacts: true
-        token: ${{ secrets.GITHUB_TOKEN }}
-        artifacts: ./artifact/*.zip
+        name: R4S-OpenWrt-Build-Artifacts
+        path: |
+          ./artifact/*.zip
+          ./artifact/*.sha256sum
+        retention-days: 30
     - name: Print Disk Space After
       run: df -h

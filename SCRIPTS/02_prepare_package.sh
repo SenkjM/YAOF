@@ -171,7 +171,6 @@ popd
 mkdir -p feeds/packages/utils/cgroupfs-mount/patches
 cp -rf ../PATCH/pkgs/cgroupfs-mount/900-mount-cgroup-v2-hierarchy-to-sys-fs-cgroup-cgroup2.patch ./feeds/packages/utils/cgroupfs-mount/patches/
 cp -rf ../PATCH/pkgs/cgroupfs-mount/901-fix-cgroupfs-umount.patch ./feeds/packages/utils/cgroupfs-mount/patches/
-cp -rf ../PATCH/pkgs/cgroupfs-mount/902-mount-sys-fs-cgroup-systemd-for-docker-systemd-suppo.patch ./feeds/packages/utils/cgroupfs-mount/patches/
 # fstool
 wget -qO - https://github.com/coolsnowwolf/lede/commit/8a4db76.patch | patch -p1
 # Boost 通用即插即用
@@ -199,17 +198,6 @@ patch -p1 <../../../PATCH/pkgs/miniupnpd/luci-upnp-support-force_forwarding-flag
 popd
 # 动态DNS
 sed -i '/boot()/,+2d' feeds/packages/net/ddns-scripts/files/etc/init.d/ddns
-# Docker 容器
-rm -rf ./feeds/luci/applications/luci-app-dockerman
-cp -rf ../dockerman/applications/luci-app-dockerman ./feeds/luci/applications/luci-app-dockerman
-sed -i '/auto_start/d' feeds/luci/applications/luci-app-dockerman/root/etc/uci-defaults/luci-app-dockerman
-pushd feeds/packages
-wget -qO- https://github.com/openwrt/packages/commit/e2e5ee69.patch | patch -p1
-wget -qO- https://github.com/openwrt/packages/pull/20054.patch | patch -p1
-popd
-sed -i '/sysctl.d/d' feeds/packages/utils/dockerd/Makefile
-rm -rf ./feeds/luci/collections/luci-lib-docker
-cp -rf ../docker_lib/collections/luci-lib-docker ./feeds/luci/collections/luci-lib-docker
 # IPv6 兼容助手
 patch -p1 <../PATCH/pkgs/odhcp6c/1002-odhcp6c-support-dhcpv6-hotplug.patch
 # ODHCPD
@@ -244,6 +232,38 @@ find ./target/linux/ -name "config-${KERNEL_VERSION}" | xargs -I{} sh -c "echo '
 # Lets Fuck
 mkdir -p package/base-files/files/usr/bin
 cp -rf ../OpenWrt-Add/fuck ./package/base-files/files/usr/bin/fuck
+# 修改默认 IP 地址从 192.168.1.1 到 192.168.0.1
+echo "INFO: 开始修改默认 IP 地址配置..."
+modified_files=0
+
+# 修改 config_generate 文件
+if [ -f "package/base-files/files/bin/config_generate" ]; then
+    if grep -q "192\.168\.1\.1" package/base-files/files/bin/config_generate 2>/dev/null; then
+        sed -i 's/192\.168\.1\.1/192.168.0.1/g' package/base-files/files/bin/config_generate
+        echo "INFO: 已修改 package/base-files/files/bin/config_generate"
+        modified_files=$((modified_files + 1))
+    fi
+fi
+
+# 修改 board.d 网络配置文件
+for file in $(find target/linux/*/base-files/etc/board.d/ -name "*_network" 2>/dev/null); do
+    if grep -q "192\.168\.1\.1" "$file" 2>/dev/null; then
+        sed -i 's/192\.168\.1\.1/192.168.0.1/g' "$file"
+        echo "INFO: 已修改 $file"
+        modified_files=$((modified_files + 1))
+    fi
+done
+
+# 修改 base-files 模板文件
+for file in $(find package/base-files/ -name "config_generate*" 2>/dev/null); do
+    if grep -q "192\.168\.1\.1" "$file" 2>/dev/null; then
+        sed -i 's/192\.168\.1\.1/192.168.0.1/g' "$file"
+        echo "INFO: 已修改 $file"
+        modified_files=$((modified_files + 1))
+    fi
+done
+
+echo "INFO: IP 地址修改完成，共修改了 $modified_files 个文件"
 # 生成默认配置及缓存
 rm -rf .config
 sed -i 's,CONFIG_WERROR=y,# CONFIG_WERROR is not set,g' target/linux/generic/config-6.6

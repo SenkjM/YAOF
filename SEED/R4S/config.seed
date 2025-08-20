@@ -3,17 +3,17 @@ CONFIG_TARGET_rockchip=y
 CONFIG_TARGET_rockchip_armv8=y
 CONFIG_TARGET_rockchip_armv8_DEVICE_friendlyarm_nanopi-r4s=y
 CONFIG_TARGET_KERNEL_PARTSIZE=32
-CONFIG_TARGET_ROOTFS_PARTSIZE=822
-CONFIG_ALL_KMODS=y
-CONFIG_DEVEL=y
+CONFIG_TARGET_ROOTFS_PARTSIZE=4096
+# CONFIG_ALL_KMODS is not set
+# CONFIG_DEVEL is not set
 # CONFIG_KERNEL_KALLSYMS is not set
 # CONFIG_KERNEL_WERROR is not set
 CONFIG_KERNEL_BUILD_DOMAIN="buildhost"
 CONFIG_KERNEL_BUILD_USER="builder"
 CONFIG_PACKAGE_r8169-firmware=y
 CONFIG_PACKAGE_trusted-firmware-a-rk3399=y
-CONFIG_COLLECT_KERNEL_DEBUG=y
-CONFIG_REPRODUCIBLE_DEBUG_INFO=y
+# CONFIG_COLLECT_KERNEL_DEBUG is not set
+# CONFIG_REPRODUCIBLE_DEBUG_INFO is not set
 
 # GCC
 CONFIG_TOOLCHAINOPTS=y
@@ -22,16 +22,16 @@ CONFIG_TOOLCHAINOPTS=y
 CONFIG_ZLIB_OPTIMIZE_SPEED=y
 
 # DAE
-CONFIG_KERNEL_DEBUG_INFO=y
-CONFIG_KERNEL_DEBUG_INFO_REDUCED=n
-CONFIG_KERNEL_DEBUG_INFO_BTF=y
+# CONFIG_KERNEL_DEBUG_INFO is not set
+# CONFIG_KERNEL_DEBUG_INFO_REDUCED is not set
+# CONFIG_KERNEL_DEBUG_INFO_BTF is not set
 CONFIG_KERNEL_CGROUPS=y
 CONFIG_KERNEL_CGROUP_BPF=y
 CONFIG_KERNEL_BPF_EVENTS=y
 CONFIG_BPF_TOOLCHAIN_HOST=y
 CONFIG_KERNEL_XDP_SOCKETS=y
 CONFIG_PACKAGE_kmod-xdp-sockets-diag=y
-CONFIG_PACKAGE_luci-app-dae=y
+# CONFIG_PACKAGE_luci-app-dae is not set
 
 # SAVING RAM FOR DAE
 CONFIG_PACKAGE_zram-swap=y
@@ -57,6 +57,26 @@ CONFIG_PACKAGE_dnsmasq_full_ipset=y
 # CONFIG_PACKAGE_dnsmasq_full_broken_rtc is not set
 # CONFIG_PACKAGE_dnsmasq is not set
 CONFIG_PACKAGE_kmod-fs-f2fs=y
+
+### USB STORAGE & FILE SYSTEMS ###
+CONFIG_PACKAGE_kmod-usb-core=y
+CONFIG_PACKAGE_kmod-usb-storage=y
+CONFIG_PACKAGE_kmod-usb-storage-extras=y
+CONFIG_PACKAGE_kmod-usb-storage-uas=y
+CONFIG_PACKAGE_kmod-usb2=y
+CONFIG_PACKAGE_kmod-usb3=y
+CONFIG_PACKAGE_kmod-fs-ext4=y
+CONFIG_PACKAGE_kmod-fs-ntfs3=y
+CONFIG_PACKAGE_kmod-fs-vfat=y
+CONFIG_PACKAGE_kmod-fs-exfat=y
+CONFIG_PACKAGE_kmod-nls-cp437=y
+CONFIG_PACKAGE_kmod-nls-iso8859-1=y
+CONFIG_PACKAGE_kmod-nls-utf8=y
+CONFIG_PACKAGE_kmod-scsi-core=y
+CONFIG_PACKAGE_block-mount=y
+CONFIG_PACKAGE_e2fsprogs=y
+CONFIG_PACKAGE_ntfs3-mount=y
+
 CONFIG_PACKAGE_libustream-openssl=y
 # CONFIG_PACKAGE_libustream-wolfssl is not set
 CONFIG_PACKAGE_wget-ssl=y
@@ -118,9 +138,9 @@ CONFIG_PACKAGE_luci-app-cpufreq=y
 CONFIG_PACKAGE_luci-app-cpulimit=y
 CONFIG_PACKAGE_luci-app-frpc=y
 CONFIG_PACKAGE_frpc=y
-CONFIG_PACKAGE_luci-app-frps=y
-CONFIG_PACKAGE_frps=y
-CONFIG_PACKAGE_luci-app-openclash=y
+# CONFIG_PACKAGE_luci-app-frps is not set
+# CONFIG_PACKAGE_frps is not set
+# CONFIG_PACKAGE_luci-app-openclash is not set
 CONFIG_PACKAGE_luci-app-opkg=y
 CONFIG_PACKAGE_luci-app-ramfree=y
 CONFIG_PACKAGE_luci-app-wechatpush=y
@@ -131,7 +151,7 @@ CONFIG_PACKAGE_luci-app-upnp=y
 CONFIG_PACKAGE_luci-app-usb-printer=y
 CONFIG_PACKAGE_luci-app-services-wolplus=y
 CONFIG_PACKAGE_luci-app-wrtbwmon=y
-CONFIG_PACKAGE_luci-app-xlnetacc=y
+CONFIG_PACKAGE_luci-app-xlnetacc=n
 CONFIG_PACKAGE_luci-app-zerotier=y
 CONFIG_PACKAGE_luci-app-watchcat=y
 CONFIG_PACKAGE_luci-app-natmapt=y
@@ -144,14 +164,20 @@ CONFIG_PACKAGE_htop=y
 CONFIG_PACKAGE_kmod-shortcut-fe-cm=y
 CONFIG_PACKAGE_kmod-fast-classifier=y
 # CONFIG_PACKAGE_natflow-boot=y
-CONFIG_PACKAGE_luci-app-nikki=y
+# CONFIG_PACKAGE_luci-app-nikki is not set
 CONFIG_PACKAGE_luci-app-filemanager=y
 
 ### SSRP ###
-CONFIG_PACKAGE_luci-app-ssr-plus=y
+# CONFIG_PACKAGE_luci-app-ssr-plus is not set
 
 ### PASSWALL ###
-CONFIG_PACKAGE_luci-app-passwall=y
+# CONFIG_PACKAGE_luci-app-passwall is not set
+
+### PASSWALL2 ###
+CONFIG_PACKAGE_luci-app-passwall2=y
+CONFIG_PACKAGE_geoview=y
+CONFIG_PACKAGE_naiveproxy=y
+CONFIG_PACKAGE_hysteria=y
 
 ### THEME ###
 CONFIG_PACKAGE_luci-theme-argon=y
@@ -162,8 +188,22 @@ CONFIG_PACKAGE_kmod-gpio-button-hotplug=y
 
 ### SHARE NETWORK ###
 CONFIG_PACKAGE_usbmuxd=y
+CONFIG_PACKAGE_kmod-usb-net=y
 CONFIG_PACKAGE_kmod-usb-net-rndis=y
 CONFIG_PACKAGE_kmod-usb-net-ipheth=y
+CONFIG_PACKAGE_kmod-usb-net-cdc-ether=y
+CONFIG_PACKAGE_kmod-usb-net-rtl8152=y
+CONFIG_PACKAGE_kmod-usb-net-hso=y
+CONFIG_PACKAGE_kmod-usb-net-huawei-cdc-ncm=y
+
+### USB SERIAL & MISC ###
+CONFIG_PACKAGE_kmod-usb-seerial=y
+CONFIG_PACKAGE_kmod-usb-serial-pl2303=y
+CONFIG_PACKAGE_kmod-usb-serial-ftdi=y
+CONFIG_PACKAGE_kmod-usb-serial-ch341=y
+CONFIG_PACKAGE_kmod-usb-serial-option=y
+CONFIG_PACKAGE_kmod-usb-printer=y
+CONFIG_PACKAGE_kmod-usb-audio=y
 
 ### BBRv3 ###
 CONFIG_PACKAGE_kmod-tcp-bbr=y
@@ -182,15 +222,6 @@ CONFIG_LIBCURL_OPENSSL=y
 # CONFIG_LIBCURL_WOLFSSL is not set
 # CONFIG_LIBCURL_GNUTLS is not set
 # CONFIG_LIBCURL_NOSSL is not set
-
-### Video Support ###
-CONFIG_PACKAGE_kmod-drm-panfrost=y
-CONFIG_PACKAGE_kmod-multimedia-input=y
-CONFIG_PACKAGE_kmod-backlight-pwm=y
-
-### OTHERS ###
-CONFIG_PACKAGE_kmod-crypto-cmac=y
-CONFIG_PACKAGE_kmod-crypto-ccm=y
 
 ### CRYPTO ###
 CONFIG_PACKAGE_kmod-crypto-aead=y
