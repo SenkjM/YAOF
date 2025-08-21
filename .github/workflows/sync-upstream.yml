@@ -1,0 +1,188 @@
+name: Sync Upstream Branches
+
+on:
+  schedule:
+    # 每天北京时间 09:00 (UTC 01:00) 运行
+    - cron: '0 1 * * *'
+  workflow_dispatch:
+    inputs:
+      target_branch:
+        description: '指定要同步的分支 (留空则同步所有配置的分支)'
+        required: false
+        default: ''
+      force_sync:
+        description: '强制同步 (覆盖本地更改)'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    # 确保只在 senkjm-mod 分支运行，避免被覆盖
+    if: github.ref == 'refs/heads/senkjm-mod'
+    
+    strategy:
+      matrix:
+        # 配置需要同步的分支映射: [本地分支, 上游分支]
+        branch_mapping:
+          - ['24.10', '24.10']
+          # 可以在这里添加其他分支的同步配置
+          # - ['23.05', '23.05']
+          # - ['custom-branch', 'upstream-branch']
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Configure git
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+
+    - name: Add upstream remote
+      run: |
+        git remote add upstream https://github.com/QiuSimons/YAOF.git || true
+        git remote set-url upstream https://github.com/QiuSimons/YAOF.git
+
+    - name: Fetch all remotes
+      run: |
+        git fetch --all --prune
+
+    - name: Sync branch ${{ matrix.branch_mapping[0] }}
+      env:
+        LOCAL_BRANCH: ${{ matrix.branch_mapping[0] }}
+        UPSTREAM_BRANCH: ${{ matrix.branch_mapping[1] }}
+        TARGET_BRANCH: ${{ github.event.inputs.target_branch }}
+        FORCE_SYNC: ${{ github.event.inputs.force_sync }}
+      run: |
+        # 如果指定了目标分支，只同步指定的分支
+        if [[ -n "$TARGET_BRANCH" && "$LOCAL_BRANCH" != "$TARGET_BRANCH" ]]; then
+          echo "跳过分支 $LOCAL_BRANCH，只同步指定的分支 $TARGET_BRANCH"
+          exit 0
+        fi
+        
+        echo "开始同步分支: $LOCAL_BRANCH <- upstream/$UPSTREAM_BRANCH"
+        
+        # 检查本地分支是否存在
+        if git show-ref --verify --quiet refs/heads/$LOCAL_BRANCH; then
+          echo "本地分支 $LOCAL_BRANCH 已存在"
+          git checkout $LOCAL_BRANCH
+        else
+          echo "创建新的本地分支 $LOCAL_BRANCH"
+          git checkout -b $LOCAL_BRANCH
+        fi
+        
+        # 检查上游分支是否存在
+        if ! git show-ref --verify --quiet refs/remotes/upstream/$UPSTREAM_BRANCH; then
+          echo "上游分支 upstream/$UPSTREAM_BRANCH 不存在，跳过同步"
+          exit 0
+        fi
+        
+        # 记录同步前的状态
+        LOCAL_COMMIT=$(git rev-parse HEAD)
+        UPSTREAM_COMMIT=$(git rev-parse upstream/$UPSTREAM_BRANCH)
+        
+        echo "本地分支当前提交: $LOCAL_COMMIT"
+        echo "上游分支当前提交: $UPSTREAM_COMMIT"
+        
+        if [[ "$LOCAL_COMMIT" == "$UPSTREAM_COMMIT" ]]; then
+          echo "分支 $LOCAL_BRANCH 已经是最新状态，无需同步"
+          exit 0
+        fi
+        
+        # 执行同步
+        if [[ "$FORCE_SYNC" == "true" ]]; then
+          echo "强制同步模式：重置到上游分支"
+          git reset --hard upstream/$UPSTREAM_BRANCH
+          SYNC_METHOD="force-reset"
+        else
+          echo "尝试快进合并"
+          if git merge --ff-only upstream/$UPSTREAM_BRANCH; then
+            SYNC_METHOD="fast-forward"
+            echo "快进合并成功"
+          else
+            echo "无法快进合并，尝试变基"
+            if git rebase upstream/$UPSTREAM_BRANCH; then
+              SYNC_METHOD="rebase"
+              echo "变基成功"
+            else
+              echo "变基失败，可能存在冲突。请手动解决冲突或使用强制同步模式。"
+              git rebase --abort
+              exit 1
+            fi
+          fi
+        fi
+        
+        # 记录同步后的状态
+        NEW_COMMIT=$(git rev-parse HEAD)
+        echo "同步后提交: $NEW_COMMIT"
+        echo "同步方法: $SYNC_METHOD"
+        
+        # 保存同步信息到环境变量
+        echo "LOCAL_BRANCH=$LOCAL_BRANCH" >> $GITHUB_ENV
+        echo "UPSTREAM_BRANCH=$UPSTREAM_BRANCH" >> $GITHUB_ENV
+        echo "SYNC_METHOD=$SYNC_METHOD" >> $GITHUB_ENV
+        echo "OLD_COMMIT=$LOCAL_COMMIT" >> $GITHUB_ENV
+        echo "NEW_COMMIT=$NEW_COMMIT" >> $GITHUB_ENV
+
+    - name: Push changes
+      env:
+        LOCAL_BRANCH: ${{ matrix.branch_mapping[0] }}
+      run: |
+        # 检查是否有更改需要推送
+        if git diff --quiet origin/$LOCAL_BRANCH 2>/dev/null; then
+          echo "没有更改需要推送"
+        else
+          echo "推送更改到 origin/$LOCAL_BRANCH"
+          if [[ "${{ github.event.inputs.force_sync }}" == "true" ]]; then
+            git push --force-with-lease origin $LOCAL_BRANCH
+          else
+            git push origin $LOCAL_BRANCH
+          fi
+        fi
+
+    - name: Create sync summary
+      if: always()
+      env:
+        LOCAL_BRANCH: ${{ matrix.branch_mapping[0] }}
+        UPSTREAM_BRANCH: ${{ matrix.branch_mapping[1] }}
+      run: |
+        echo "## 同步摘要 - $LOCAL_BRANCH" >> $GITHUB_STEP_SUMMARY
+        echo "- **本地分支**: $LOCAL_BRANCH" >> $GITHUB_STEP_SUMMARY
+        echo "- **上游分支**: upstream/$UPSTREAM_BRANCH" >> $GITHUB_STEP_SUMMARY
+        echo "- **同步方法**: ${SYNC_METHOD:-'未执行'}" >> $GITHUB_STEP_SUMMARY
+        echo "- **同步前提交**: \`${OLD_COMMIT:-'N/A'}\`" >> $GITHUB_STEP_SUMMARY
+        echo "- **同步后提交**: \`${NEW_COMMIT:-'N/A'}\`" >> $GITHUB_STEP_SUMMARY
+        echo "- **时间**: $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+
+  notify:
+    runs-on: ubuntu-latest
+    needs: sync
+    if: always() && github.ref == 'refs/heads/senkjm-mod'
+    steps:
+    - name: Sync Status Summary
+      run: |
+        echo "## 🔄 上游分支同步完成" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        if [[ "${{ needs.sync.result }}" == "success" ]]; then
+          echo "✅ **状态**: 同步成功" >> $GITHUB_STEP_SUMMARY
+        elif [[ "${{ needs.sync.result }}" == "failure" ]]; then
+          echo "❌ **状态**: 同步失败" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "⏭️ **状态**: 同步跳过" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        echo "📅 **执行时间**: $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+        echo "🌿 **当前分支**: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+        echo "📝 **触发方式**: ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+        
+        if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+          echo "⚙️ **手动参数**:" >> $GITHUB_STEP_SUMMARY
+          echo "  - 目标分支: \`${{ github.event.inputs.target_branch || '全部' }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "  - 强制同步: \`${{ github.event.inputs.force_sync }}\`" >> $GITHUB_STEP_SUMMARY
+        fi
