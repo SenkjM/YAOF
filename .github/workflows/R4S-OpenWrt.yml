@@ -10,6 +10,21 @@ on:
         required: false
         default: '192.168.0.1'
         type: string
+      enable_telegram:
+        description: '启用Telegram推送通知'
+        required: false
+        default: false
+        type: boolean
+      create_release:
+        description: '创建Release发布'
+        required: false
+        default: false
+        type: boolean
+      release_tag:
+        description: 'Release标签名'
+        required: false
+        default: ''
+        type: string
   watch:
     types: started
 
@@ -52,17 +67,26 @@ jobs:
         df -h
     - name: Prepare Mixedwrt
       run: |
+        echo "## 📋 准备构建环境" >> $GITHUB_STEP_SUMMARY
+        echo "开始准备 Mixedwrt 构建环境..." >> $GITHUB_STEP_SUMMARY
+        
         sudo chown -R runner:runner /home/runner/work/YAOF
         cp -r ./SCRIPTS/R4S/. ./SCRIPTS/
         cp -r ./SCRIPTS/. ./
         /bin/bash 01_get_ready.sh
+        
+        echo "✅ Mixedwrt 环境准备完成" >> $GITHUB_STEP_SUMMARY
     - name: Prepare Package
       working-directory: ${{ github.workspace }}/openwrt
       run: |
+        echo "📦 准备软件包..." >> $GITHUB_STEP_SUMMARY
+        
         cp -r ../SCRIPTS/. ./
         /bin/bash 02_prepare_package.sh
         /bin/bash 02_target_only.sh
         /bin/bash 04_remove_upx.sh
+        
+        echo "✅ 软件包准备完成" >> $GITHUB_STEP_SUMMARY
     - name: Check PassWall Conflicts
       working-directory: ${{ github.workspace }}/openwrt
       run: |
@@ -72,8 +96,10 @@ jobs:
       env:
         NEW_IP: ${{ inputs.new_ip || '192.168.0.1' }}
       run: |
+        echo "🌐 配置 LAN IP 地址: 192.168.1.1 -> $NEW_IP" >> $GITHUB_STEP_SUMMARY
         echo "配置IP地址修改: 192.168.1.1 -> $NEW_IP"
         /bin/bash 09_change_default_ip.sh
+        echo "✅ IP 地址配置完成" >> $GITHUB_STEP_SUMMARY
     - name: QTMDFW4
       working-directory: ${{ github.workspace }}/openwrt
       run: |
@@ -99,9 +125,12 @@ jobs:
       working-directory: ${{ github.workspace }}/openwrt
       run: |
         TARGET_DEVICE_ARCH="$(grep "^CONFIG_TARGET_.*_.*=y$" ".config" | head -n 1 | sed 's/^CONFIG_TARGET_//g' | awk -F '_' '{print $1}')"
-        echo "TARGET_DEVICE_ARCH=${TARGET_DEVICE_ARCH}-3399" >>$GITHUB_ENV
+        echo "TARGET_DEVICE_ARCH=${TARGET_DEVICE_ARCH}-3399" >> $GITHUB_ENV
         latest_release="$(curl -s https://github.com/openwrt/openwrt/tags | grep -Eo "v[0-9\.]+\-*r*c*[0-9]*.tar.gz" | sed -n '/[2-9][4-9]/p' | sed -n 1p | sed 's/.tar.gz//g' | sed 's/v//g')"
-        echo "latest_release=${latest_release}" >>$GITHUB_ENV
+        echo "latest_release=${latest_release}" >> $GITHUB_ENV
+        
+        echo "🏗️ 构建架构: ${TARGET_DEVICE_ARCH}-3399" >> $GITHUB_STEP_SUMMARY
+        echo "📱 OpenWrt 版本: ${latest_release}" >> $GITHUB_STEP_SUMMARY
     - name: Cache
       uses: HiGarfield/cachewrtbuild@main
       with:
@@ -116,9 +145,19 @@ jobs:
       id: compileopenwrt
       continue-on-error: true
       run: |
+        echo "🔨 开始编译 OpenWrt..." >> $GITHUB_STEP_SUMMARY
+        echo "使用 $(nproc) 个 CPU 核心进行编译" >> $GITHUB_STEP_SUMMARY
+        
         #echo | make kernel_oldconfig -j$(($(nproc) + 1)) 
         make -j$(($(nproc) + 1)) package/network/utils/nftables/refresh V=s
         IGNORE_ERRORS=1 make -j$(($(nproc) + 1))
+        
+        if [ $? -eq 0 ]; then
+          echo "✅ OpenWrt 编译成功完成" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "❌ OpenWrt 编译遇到错误，将进行单线程重试" >> $GITHUB_STEP_SUMMARY
+        fi
+        
         echo $?
     - name: If Error
       working-directory: ${{ github.workspace }}/openwrt
@@ -130,6 +169,8 @@ jobs:
     - name: Organize files
       id: organize
       run: |
+        echo "📁 整理构建产物..." >> $GITHUB_STEP_SUMMARY
+        
         rm -rf ./artifact/
         mkdir -p ./artifact/
         mv openwrt/bin/targets/rockchip/armv8/*sysupgrade.img* ./artifact/
@@ -138,17 +179,188 @@ jobs:
         gzip -d *.gz && exit 0
         gzip --best *.img
         ls -Ahl
-        sha256sum openwrt*r4s* | tee R4S-GC404-$(date +%Y-%m-%d)-${{ env.latest_release }}.sha256sum
-        zip R4S-GC404-$(date +%Y-%m-%d)-${{ env.latest_release }}-ext4.zip *r4s*ext4*
-        zip R4S-GC404-$(date +%Y-%m-%d)-${{ env.latest_release }}-sfs.zip *r4s*squashfs*
+        
+        # 生成文件名变量
+        BUILD_DATE=$(date +%Y-%m-%d)
+        # 使用环境变量latest_release
+        RELEASE_NAME="R4S-GC404-${BUILD_DATE}-${latest_release:-unknown}"
+        echo "BUILD_DATE=${BUILD_DATE}" >> $GITHUB_ENV
+        echo "RELEASE_NAME=${RELEASE_NAME}" >> $GITHUB_ENV
+        
+        # 创建SHA256校验文件
+        sha256sum openwrt*r4s* | tee ${RELEASE_NAME}.sha256sum
+        
+        # 获取文件信息用于摘要
+        EXT4_FILE=$(ls *r4s*ext4*.img.gz 2>/dev/null | head -1)
+        SYS_FILE=$(ls *r4s*squashfs*.img.gz 2>/dev/null | head -1)
+        SHA_FILE="${RELEASE_NAME}.sha256sum"
+        
+        echo "EXT4_FILE=${EXT4_FILE}" >> $GITHUB_ENV
+        echo "SYS_FILE=${SYS_FILE}" >> $GITHUB_ENV
+        echo "SHA_FILE=${SHA_FILE}" >> $GITHUB_ENV
+        
+        # 获取文件大小
+        if [ -f "$EXT4_FILE" ]; then
+          EXT4_SIZE=$(ls -lh "$EXT4_FILE" | awk '{print $5}')
+          echo "EXT4_SIZE=${EXT4_SIZE}" >> $GITHUB_ENV
+          echo "📦 EXT4 镜像: $EXT4_FILE ($EXT4_SIZE)" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        if [ -f "$SYS_FILE" ]; then
+          SYS_SIZE=$(ls -lh "$SYS_FILE" | awk '{print $5}')
+          echo "SYS_SIZE=${SYS_SIZE}" >> $GITHUB_ENV
+          echo "📦 SquashFS 镜像: $SYS_FILE ($SYS_SIZE)" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        if [ -f "$SHA_FILE" ]; then
+          SHA_SIZE=$(ls -lh "$SHA_FILE" | awk '{print $5}')
+          echo "🔐 校验文件: $SHA_FILE ($SHA_SIZE)" >> $GITHUB_STEP_SUMMARY
+        fi
+        
         ls -Ahl
+        
+        # 设置构建状态
+        echo "BUILD_SUCCESS=true" >> $GITHUB_ENV
+        echo "✅ 构建产物整理完成" >> $GITHUB_STEP_SUMMARY
     - name: Upload Build Artifacts
       uses: actions/upload-artifact@v4
       with:
         name: R4S-OpenWrt-Build-Artifacts
         path: |
-          ./artifact/*.zip
+          ./artifact/*.img.gz
           ./artifact/*.sha256sum
         retention-days: 30
+    
+    - name: Handle Build Failure
+      if: failure()
+      run: |
+        echo "BUILD_SUCCESS=false" >> $GITHUB_ENV
+        echo "BUILD_ERROR=构建过程中发生错误，请检查构建日志" >> $GITHUB_ENV
     - name: Print Disk Space After
       run: df -h
+
+  summary-and-notify:
+    runs-on: ubuntu-latest
+    needs: build
+    if: always()
+    
+    steps:
+    - name: Download Build Artifacts
+      if: needs.build.result == 'success'
+      uses: actions/download-artifact@v4
+      with:
+        name: R4S-OpenWrt-Build-Artifacts
+        path: ./artifacts/
+    
+    - name: Generate Build Summary
+      id: summary
+      run: |
+        echo "## 🚀 R4S OpenWrt 构建摘要" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**构建时间**: $(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S CST')" >> $GITHUB_STEP_SUMMARY
+        echo "**构建分支**: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+        echo "**构建状态**: ${{ needs.build.result }}" >> $GITHUB_STEP_SUMMARY
+        echo "**LAN IP地址**: ${{ inputs.new_ip || '192.168.0.1' }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        if [ "${{ needs.build.result }}" == "success" ]; then
+          echo "✅ **构建成功完成！**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📦 构建产物" >> $GITHUB_STEP_SUMMARY
+          
+          # 列出构建产物
+          if [ -d "./artifacts/" ]; then
+            cd ./artifacts/
+            echo "| 文件名 | 大小 | 类型 |" >> $GITHUB_STEP_SUMMARY
+            echo "|--------|------|------|" >> $GITHUB_STEP_SUMMARY
+            
+            for file in *.img.gz; do
+              if [ -f "$file" ]; then
+                size=$(ls -lh "$file" | awk '{print $5}')
+                if [[ "$file" == *"ext4"* ]]; then
+                  echo "| $file | $size | EXT4镜像 |" >> $GITHUB_STEP_SUMMARY
+                elif [[ "$file" == *"squashfs"* ]]; then
+                  echo "| $file | $size | SquashFS镜像 |" >> $GITHUB_STEP_SUMMARY
+                fi
+              fi
+            done
+            
+            for file in *.sha256sum; do
+              if [ -f "$file" ]; then
+                size=$(ls -lh "$file" | awk '{print $5}')
+                echo "| $file | $size | 校验文件 |" >> $GITHUB_STEP_SUMMARY
+              fi
+            done
+            
+            cd ..
+          fi
+          
+          # 设置Telegram消息
+          TELEGRAM_MSG="🎉 *R4S OpenWrt 构建成功！*%0A%0A"
+          TELEGRAM_MSG="${TELEGRAM_MSG}🏷️ 分支: \`${{ github.ref_name }}\`%0A"
+          TELEGRAM_MSG="${TELEGRAM_MSG}🌐 LAN IP: \`${{ inputs.new_ip || '192.168.0.1' }}\`%0A"
+          TELEGRAM_MSG="${TELEGRAM_MSG}⏰ 构建时间: \`$(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S CST')\`%0A%0A"
+          TELEGRAM_MSG="${TELEGRAM_MSG}📦 *构建产物已就绪！*%0A%0A"
+          TELEGRAM_MSG="${TELEGRAM_MSG}🔗 [查看构建详情](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})%0A"
+          
+          # 如果启用了 Release，添加 Release 链接
+          if [ "${{ inputs.create_release }}" == "true" ] && [ -n "${{ inputs.release_tag }}" ]; then
+            TELEGRAM_MSG="${TELEGRAM_MSG}🚀 [下载 Release](https://github.com/${{ github.repository }}/releases/tag/${{ inputs.release_tag }})%0A"
+          fi
+          
+        else
+          echo "❌ **构建失败！**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "请检查构建日志以了解失败原因。" >> $GITHUB_STEP_SUMMARY
+          
+          # 设置Telegram错误消息
+          TELEGRAM_MSG="❌ *R4S OpenWrt 构建失败！*%0A%0A"
+          TELEGRAM_MSG="${TELEGRAM_MSG}🏷️ 分支: \`${{ github.ref_name }}\`%0A"
+          TELEGRAM_MSG="${TELEGRAM_MSG}⏰ 构建时间: \`$(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S CST')\`%0A%0A"
+          TELEGRAM_MSG="${TELEGRAM_MSG}请检查构建日志以了解详细错误信息。%0A%0A"
+          TELEGRAM_MSG="${TELEGRAM_MSG}🔗 [查看构建日志](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+        fi
+        
+        echo "TELEGRAM_MESSAGE=${TELEGRAM_MSG}" >> $GITHUB_ENV
+    
+    - name: Send Telegram Notification
+      if: inputs.enable_telegram == true
+      env:
+        TELEGRAM_MESSAGE: ${{ env.TELEGRAM_MESSAGE }}
+      run: |
+        curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+          -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+          -d text="${TELEGRAM_MESSAGE}" \
+          -d parse_mode="Markdown" \
+          -d disable_web_page_preview=false
+    
+    - name: Create Release
+      if: inputs.create_release == true && needs.build.result == 'success' && inputs.release_tag != ''
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ inputs.release_tag }}
+        name: "R4S YAOF SenkjM Mod ${{ inputs.release_tag }}"
+        body: |
+          ## R4S YAOF SenkjM Mod 固件发布
+
+          **构建时间**: ${{ github.run_id }}
+          **构建分支**: ${{ github.ref_name }}
+          **LAN IP地址**: ${{ inputs.new_ip || '192.168.0.1' }}
+          
+          ### 文件说明
+          - `*-ext4.img.gz`: EXT4 格式固件，适用于有大容量存储需求的用户
+          - `*-squashfs.img.gz`: SquashFS 格式固件，推荐日常使用
+          - `*.sha256sum`: 校验文件，用于验证下载文件的完整性
+          
+          ### 刷机说明
+          1. 下载对应的固件文件
+          2. 解压缩 `.gz` 文件
+          3. 使用刷机工具刷入设备
+          4. 首次启动后，通过 http://${{ inputs.new_ip || '192.168.0.1' }} 访问管理界面
+          
+          **注意**: 刷机有风险，请确保设备支持并备份重要数据！
+        files: |
+          ./artifacts/*.img.gz
+          ./artifacts/*.sha256sum
+        draft: false
+        prerelease: false
