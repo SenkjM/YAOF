@@ -32,6 +32,12 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     if: github.event.repository.owner.id == github.event.sender.id
+    outputs:
+      build_status: ${{ steps.collect_info.outputs.build_status }}
+      failed_step: ${{ steps.collect_info.outputs.failed_step }}
+      build_error: ${{ steps.collect_info.outputs.build_error }}
+      workflow_run_id: ${{ steps.collect_info.outputs.workflow_run_id }}
+      workflow_run_attempt: ${{ steps.collect_info.outputs.workflow_run_attempt }}
 
     steps:
     - name: Show system
@@ -49,8 +55,10 @@ jobs:
         remove-haskell: 'true'
         remove-codeql: 'true'
     - name: Checkout
+      id: checkout
       uses: actions/checkout@main
     - name: Init build dependencies
+      id: dependencies
       env:
         DEBIAN_FRONTEND: noninteractive
       run: |
@@ -66,6 +74,7 @@ jobs:
         sudo -E git config --global core.abbrev auto
         df -h
     - name: Prepare Mixedwrt
+      id: prepare_mixedwrt
       run: |
         echo "## 📋 准备构建环境" >> $GITHUB_STEP_SUMMARY
         echo "开始准备 Mixedwrt 构建环境..." >> $GITHUB_STEP_SUMMARY
@@ -137,6 +146,7 @@ jobs:
         mixkey: ${{ env.TARGET_DEVICE_ARCH }}
         prefix: ${{ github.workspace }}/openwrt
     - name: Make Download
+      id: make_download
       working-directory: ${{ github.workspace }}/openwrt
       run: |
         make download -j50
@@ -231,11 +241,48 @@ jobs:
           ./artifact/*.sha256sum
         retention-days: 30
     
-    - name: Handle Build Failure
-      if: failure()
+    - name: Collect Build Information
+      id: collect_info
+      if: always()
       run: |
-        echo "BUILD_SUCCESS=false" >> $GITHUB_ENV
-        echo "BUILD_ERROR=构建过程中发生错误，请检查构建日志" >> $GITHUB_ENV
+        # 检查是否为手动取消
+        if [ "${{ job.status }}" == "cancelled" ]; then
+          echo "build_status=cancelled" >> $GITHUB_OUTPUT
+          echo "build_error=构建被手动取消" >> $GITHUB_OUTPUT
+          echo "failed_step=手动取消" >> $GITHUB_OUTPUT
+        elif [ "${{ job.status }}" == "failure" ]; then
+          echo "build_status=failed" >> $GITHUB_OUTPUT
+          
+          # 检查具体失败的步骤
+          if [ "${{ steps.compileopenwrt.outcome }}" == "failure" ]; then
+            echo "failed_step=编译 OpenWrt" >> $GITHUB_OUTPUT
+            echo "build_error=OpenWrt编译失败，可能是依赖问题、内存不足或代码错误" >> $GITHUB_OUTPUT
+          elif [ "${{ steps.organize.outcome }}" == "failure" ]; then
+            echo "failed_step=整理构建产物" >> $GITHUB_OUTPUT
+            echo "build_error=构建产物整理失败，可能是文件路径或权限问题" >> $GITHUB_OUTPUT
+          elif [ "${{ steps.checkout.outcome }}" == "failure" ]; then
+            echo "failed_step=代码检出" >> $GITHUB_OUTPUT
+            echo "build_error=代码检出失败，可能是网络问题或仓库权限问题" >> $GITHUB_OUTPUT
+          elif [ "${{ steps.dependencies.outcome }}" == "failure" ]; then
+            echo "failed_step=依赖安装" >> $GITHUB_OUTPUT
+            echo "build_error=构建依赖安装失败，可能是网络问题或软件包源问题" >> $GITHUB_OUTPUT
+          elif [ "${{ steps.prepare_mixedwrt.outcome }}" == "failure" ]; then
+            echo "failed_step=Mixedwrt环境准备" >> $GITHUB_OUTPUT
+            echo "build_error=Mixedwrt环境准备失败，可能是脚本权限或配置问题" >> $GITHUB_OUTPUT
+          elif [ "${{ steps.make_download.outcome }}" == "failure" ]; then
+            echo "failed_step=依赖下载" >> $GITHUB_OUTPUT
+            echo "build_error=依赖包下载失败，可能是网络连接或源服务器问题" >> $GITHUB_OUTPUT
+          else
+            echo "failed_step=其他构建步骤" >> $GITHUB_OUTPUT
+            echo "build_error=构建在某个步骤失败，请查看详细日志确定具体原因" >> $GITHUB_OUTPUT
+          fi
+        else
+          echo "build_status=success" >> $GITHUB_OUTPUT
+        fi
+        
+        # 记录构建相关信息
+        echo "workflow_run_id=${{ github.run_id }}" >> $GITHUB_OUTPUT
+        echo "workflow_run_attempt=${{ github.run_attempt }}" >> $GITHUB_OUTPUT
     - name: Print Disk Space After
       run: df -h
 
@@ -313,12 +360,30 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "请检查构建日志以了解失败原因。" >> $GITHUB_STEP_SUMMARY
           
+          # 获取详细的错误信息
+          BUILD_STATUS="${{ needs.build.outputs.build_status || 'unknown' }}"
+          FAILED_STEP="${{ needs.build.outputs.failed_step || '未知步骤' }}"
+          BUILD_ERROR="${{ needs.build.outputs.build_error || '构建过程中发生未知错误' }}"
+          
           # 设置Telegram错误消息
-          TELEGRAM_MSG="❌ *R4S OpenWrt 构建失败！*%0A%0A"
-          TELEGRAM_MSG="${TELEGRAM_MSG}🏷️ 分支: \`${{ github.ref_name }}\`%0A"
-          TELEGRAM_MSG="${TELEGRAM_MSG}⏰ 构建时间: \`$(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S CST')\`%0A%0A"
-          TELEGRAM_MSG="${TELEGRAM_MSG}请检查构建日志以了解详细错误信息。%0A%0A"
+          if [ "$BUILD_STATUS" == "cancelled" ]; then
+            TELEGRAM_MSG="⏹️ *R4S OpenWrt 构建被取消！*%0A%0A"
+            TELEGRAM_MSG="${TELEGRAM_MSG}🏷️ 分支: \`${{ github.ref_name }}\`%0A"
+            TELEGRAM_MSG="${TELEGRAM_MSG}⏰ 取消时间: \`$(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S CST')\`%0A"
+            TELEGRAM_MSG="${TELEGRAM_MSG}📍 失败步骤: \`${FAILED_STEP}\`%0A%0A"
+            TELEGRAM_MSG="${TELEGRAM_MSG}ℹ️ 构建被手动取消或超时取消%0A%0A"
+          else
+            TELEGRAM_MSG="❌ *R4S OpenWrt 构建失败！*%0A%0A"
+            TELEGRAM_MSG="${TELEGRAM_MSG}🏷️ 分支: \`${{ github.ref_name }}\`%0A"
+            TELEGRAM_MSG="${TELEGRAM_MSG}⏰ 失败时间: \`$(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S CST')\`%0A"
+            TELEGRAM_MSG="${TELEGRAM_MSG}📍 失败步骤: \`${FAILED_STEP}\`%0A"
+            TELEGRAM_MSG="${TELEGRAM_MSG}🔍 错误原因: \`${BUILD_ERROR}\`%0A%0A"
+          fi
+          
           TELEGRAM_MSG="${TELEGRAM_MSG}🔗 [查看构建日志](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+          if [ "${{ needs.build.outputs.workflow_run_attempt || github.run_attempt }}" -gt "1" ]; then
+            TELEGRAM_MSG="${TELEGRAM_MSG}%0A🔄 这是第 ${{ needs.build.outputs.workflow_run_attempt || github.run_attempt }} 次重试"
+          fi
         fi
         
         echo "TELEGRAM_MESSAGE=${TELEGRAM_MSG}" >> $GITHUB_ENV
