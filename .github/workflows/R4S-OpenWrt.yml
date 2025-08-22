@@ -257,7 +257,7 @@ jobs:
       run: |
         echo "## 🚀 R4S OpenWrt 构建摘要" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "**构建时间**: $(date '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+        echo "**构建时间**: $(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S CST')" >> $GITHUB_STEP_SUMMARY
         echo "**构建分支**: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
         echo "**构建状态**: ${{ needs.build.result }}" >> $GITHUB_STEP_SUMMARY
         echo "**LAN IP地址**: ${{ inputs.new_ip || '192.168.0.1' }}" >> $GITHUB_STEP_SUMMARY
@@ -296,11 +296,17 @@ jobs:
           fi
           
           # 设置Telegram消息
-          TELEGRAM_MSG="🎉 R4S OpenWrt 构建成功！%0A%0A"
-          TELEGRAM_MSG="${TELEGRAM_MSG}🏷️ 分支: ${{ github.ref_name }}%0A"
-          TELEGRAM_MSG="${TELEGRAM_MSG}🌐 LAN IP: ${{ inputs.new_ip || '192.168.0.1' }}%0A"
-          TELEGRAM_MSG="${TELEGRAM_MSG}⏰ 构建时间: $(date '+%Y-%m-%d %H:%M:%S UTC')%0A%0A"
-          TELEGRAM_MSG="${TELEGRAM_MSG}📦 构建产物已就绪，可从 GitHub Actions 页面下载。"
+          TELEGRAM_MSG="🎉 *R4S OpenWrt 构建成功！*%0A%0A"
+          TELEGRAM_MSG="${TELEGRAM_MSG}🏷️ 分支: \`${{ github.ref_name }}\`%0A"
+          TELEGRAM_MSG="${TELEGRAM_MSG}🌐 LAN IP: \`${{ inputs.new_ip || '192.168.0.1' }}\`%0A"
+          TELEGRAM_MSG="${TELEGRAM_MSG}⏰ 构建时间: \`$(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S CST')\`%0A%0A"
+          TELEGRAM_MSG="${TELEGRAM_MSG}📦 *构建产物已就绪！*%0A%0A"
+          TELEGRAM_MSG="${TELEGRAM_MSG}🔗 [查看构建详情](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})%0A"
+          
+          # 如果启用了 Release，添加 Release 链接
+          if [ "${{ inputs.create_release }}" == "true" ] && [ -n "${{ inputs.release_tag }}" ]; then
+            TELEGRAM_MSG="${TELEGRAM_MSG}🚀 [下载 Release](https://github.com/${{ github.repository }}/releases/tag/${{ inputs.release_tag }})%0A"
+          fi
           
         else
           echo "❌ **构建失败！**" >> $GITHUB_STEP_SUMMARY
@@ -308,10 +314,11 @@ jobs:
           echo "请检查构建日志以了解失败原因。" >> $GITHUB_STEP_SUMMARY
           
           # 设置Telegram错误消息
-          TELEGRAM_MSG="❌ R4S OpenWrt 构建失败！%0A%0A"
-          TELEGRAM_MSG="${TELEGRAM_MSG}🏷️ 分支: ${{ github.ref_name }}%0A"
-          TELEGRAM_MSG="${TELEGRAM_MSG}⏰ 构建时间: $(date '+%Y-%m-%d %H:%M:%S UTC')%0A%0A"
-          TELEGRAM_MSG="${TELEGRAM_MSG}请检查 GitHub Actions 日志以了解详细错误信息。"
+          TELEGRAM_MSG="❌ *R4S OpenWrt 构建失败！*%0A%0A"
+          TELEGRAM_MSG="${TELEGRAM_MSG}🏷️ 分支: \`${{ github.ref_name }}\`%0A"
+          TELEGRAM_MSG="${TELEGRAM_MSG}⏰ 构建时间: \`$(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S CST')\`%0A%0A"
+          TELEGRAM_MSG="${TELEGRAM_MSG}请检查构建日志以了解详细错误信息。%0A%0A"
+          TELEGRAM_MSG="${TELEGRAM_MSG}🔗 [查看构建日志](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
         fi
         
         echo "TELEGRAM_MESSAGE=${TELEGRAM_MSG}" >> $GITHUB_ENV
@@ -324,17 +331,18 @@ jobs:
         curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
           -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
           -d text="${TELEGRAM_MESSAGE}" \
-          -d parse_mode="HTML"
+          -d parse_mode="Markdown" \
+          -d disable_web_page_preview=false
     
     - name: Create Release
       if: inputs.create_release == true && needs.build.result == 'success' && inputs.release_tag != ''
       uses: softprops/action-gh-release@v1
       with:
         tag_name: ${{ inputs.release_tag }}
-        name: "R4S OpenWrt ${{ inputs.release_tag }}"
+        name: "R4S YAOF SenkjM Mod ${{ inputs.release_tag }}"
         body: |
-          ## R4S OpenWrt 固件发布
-          
+          ## R4S YAOF SenkjM Mod 固件发布
+
           **构建时间**: ${{ github.run_id }}
           **构建分支**: ${{ github.ref_name }}
           **LAN IP地址**: ${{ inputs.new_ip || '192.168.0.1' }}
