@@ -299,28 +299,5 @@ jobs:
           zip ${{ env.artifact_prefix }}-$(date +%Y-%m-%d)-${{ env.latest_release }}-sfs.zip ${{ env.sfs_zip }}
           ls -Ahl
 
-      - name: Create release
-        if: inputs.build_firmware
-        id: create_release
-        uses: ncipollo/release-action@main
-        with:
-          name: OpenWRT-${{ env.latest_release }}
-          allowUpdates: true
-          prerelease: false
-          tag: ${{ env.latest_release }}
-          commit: "25.12"
-          replacesArtifacts: true
-          token: ${{ secrets.GITHUB_TOKEN }}
-          artifacts: ./artifact/*.zip
-
       - name: Print Disk Space After
         run: df -h
-
-      - name: Trigger badge sync for current platform
-        if: github.workflow == 'OpenWrt-Matrix' && inputs.build_firmware && steps.create_release.outcome != 'skipped' && always()
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          echo "Triggering badge sync for ${{ matrix.name }} with status: ${{ steps.create_release.outcome }}"
-          gh workflow run "${{ matrix.name }}-OpenWrt.yml" \
-            --field badge_status="${{ steps.create_release.outcome }}" || echo "Failed to trigger ${{ matrix.name }} workflow"
